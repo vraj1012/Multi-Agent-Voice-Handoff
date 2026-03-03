@@ -1,0 +1,82 @@
+import chromadb
+import logging
+from app.core.config import settings
+from app.rag.embeddings import get_embedding_service, EmbeddingService
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class RAGEngine:
+    def __init__(self):
+        try:
+            logger.info("Initializing ChromaDB Client...")
+            self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+            self.embedding_service = get_embedding_service()
+            logger.info("ChromaDB Client initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize ChromaDB: {e}")
+            raise e
+
+    def get_or_create_collection(self, name: str):
+        """
+        Get a collection by name, or create it if it doesn't exist.
+        """
+        try:
+             # ChromaDB expects an embedding function, but we can also manage embeddings manually
+             # We will manage manually to have full control over the model
+            collection = self.client.get_or_create_collection(name=name)
+            return collection
+        except Exception as e:
+            logger.error(f"Error getting collection {name}: {e}")
+            return None
+
+    def add_documents(self, collection_name: str, documents: list[str], metadatas: list[dict], ids: list[str]):
+        """
+        Add documents to a specific collection.
+        Autogenerates embeddings using our EmbeddingService.
+        """
+        collection = self.get_or_create_collection(collection_name)
+        if not collection:
+            return False
+
+        try:
+            embeddings = self.embedding_service.get_embeddings(documents)
+            collection.add(
+                documents=documents,
+                embeddings=embeddings,
+                metadatas=metadatas,
+                ids=ids
+            )
+            logger.info(f"Added {len(documents)} documents to {collection_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error adding documents to {collection_name}: {e}")
+            return False
+
+    def query(self, collection_name: str, query_text: str, n_results: int = 3):
+        """
+        Query a collection for relevant context.
+        """
+        collection = self.get_or_create_collection(collection_name)
+        if not collection:
+            return []
+
+        try:
+            query_embedding = self.embedding_service.get_embedding(query_text)
+            results = collection.query(
+                query_embeddings=[query_embedding],
+                n_results=n_results
+            )
+            return results
+        except Exception as e:
+            logger.error(f"Error querying {collection_name}: {e}")
+            return []
+
+# Singleton
+rag_engine = None
+
+def get_rag_engine():
+    global rag_engine
+    if rag_engine is None:
+        rag_engine = RAGEngine()
+    return rag_engine

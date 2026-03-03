@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "multi-agent-voice-handoff"
+version = "1.0.0"
+description = "White-labeled multi-agent voice orchestration system with real-time handoff"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+dependencies = [
+    # Core Framework
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "pydantic-settings>=2.0.0",
+
+    # LLM Providers
+    "openai>=1.0.0",
+    "google-generativeai>=0.3.0",
+
+    # Agent Framework
+    "agent-framework",
+
+    # Speech-to-Text
+    "faster-whisper>=0.10.0",
+
+    # Text-to-Speech & VAD (PyTorch)
+    "torch>=2.0.0",
+    "numpy>=1.24.0",
+
+    # RAG
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.2.0",
+    "PyPDF2>=3.0.0",
+]
+
+[project.optional-dependencies]
+voice-client = [
+    "sounddevice>=0.4.6",
+    "websockets>=11.0",
+]
+
+[project.scripts]
+ingest = "scripts.ingest_knowledge:main"

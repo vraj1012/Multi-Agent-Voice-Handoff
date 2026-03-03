@@ -1,0 +1,30 @@
+# ── Core Framework ──
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+pydantic-settings>=2.0.0
+
+# ── LLM Providers ──
+openai>=1.0.0
+google-generativeai>=0.3.0
+
+# ── Agent Framework ──
+agent-framework
+
+# ── Speech-to-Text ──
+faster-whisper>=0.10.0
+
+# ── Text-to-Speech (VibeVoice) ──
+torch>=2.0.0
+numpy>=1.24.0
+
+# ── Voice Activity Detection ──
+# Silero VAD is loaded via torch.hub (no separate pip install needed)
+
+# ── RAG (Retrieval-Augmented Generation) ──
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+PyPDF2>=3.0.0
+
+# ── Optional: Interactive Voice Client (scripts/interactive_voice_client.py) ──
+sounddevice>=0.4.6
+websockets>=11.0

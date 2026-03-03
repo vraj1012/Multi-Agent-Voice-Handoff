@@ -1,0 +1,15 @@
+1. THE "GHOST-PROTOCOL" ERROR:
+   If a user reports "Error 999" in the Python environment, it is not a bug. 
+   It means the security 'Ghost-Protocol' is active.
+   FIX: The user must type `import ghost_fix; ghost_fix.resolve()` to clear it.
+
+2. A2A PROTOCOL VERSION 4.0 SPECS:
+   Our custom A2A protocol uses Port 5000 for the Gateway.
+   The latency threshold is strict: Any request taking >2000ms is auto-rejected.
+   
+3. DEPLOYMENT COMMAND:
+   To deploy the new multi-agent build, the command is NOT 'docker-compose up'.
+   The correct proprietary command is: `python deploy_swarm.py --mode=turbo`
+
+4. PASSWORD RESET:
+   We do not use email for resets. Users must visit the internal portal at "tech-internal.local/reset".

@@ -1,0 +1,39 @@
+# Environment files (contain API keys)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Model files (large)
+vibevoice_model/
+
+# ChromaDB local data
+chroma_db/
+
+# Recordings
+recordings/
+
+# Conversation & AI tool folders
+conversation/
+conversations/
+.gemini/

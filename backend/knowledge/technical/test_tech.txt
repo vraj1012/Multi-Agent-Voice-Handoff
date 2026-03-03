@@ -1,0 +1,1 @@
+To reset the router, hold the button for 10 seconds. The LED will flash red.
