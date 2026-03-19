@@ -1,7 +1,4 @@
-"""
-DualChatClient — Universal LLM adapter for Azure/Gemini/Ollama.
-Handles tool execution internally, passes handoff tools to the framework.
-"""
+"""DualChatClient — Universal LLM adapter for Azure/Gemini/Ollama."""
 import json
 import logging
 from typing import Any, List, Optional
@@ -38,7 +35,7 @@ class DualChatClient(BaseChatClient):
                 azure_endpoint=settings.AZURE_OPENAI_ENDPOINT,
             )
 
-    # ── Non-streaming (batch) ──────────────────────────────────────────
+    # Non-streaming (batch)
 
     async def _inner_get_response(self, messages: List[ChatMessage], *, options: Optional[Any] = None, **kwargs) -> ChatResponse:
         tools = kwargs.get("tools", None)
@@ -66,7 +63,7 @@ class DualChatClient(BaseChatClient):
             msg.additional_properties["tool_calls"] = tc
         return ChatResponse(messages=[msg])
 
-    # ── Streaming (with internal tool execution loop) ──────────────────
+    # Streaming (with internal tool execution loop)
 
     async def _inner_get_streaming_response(self, messages, *, options=None, **kwargs):
         raw_tools = kwargs.get("tools", None)
@@ -79,12 +76,23 @@ class DualChatClient(BaseChatClient):
 
         azure_tools, tool_map = self._build_tool_registry(raw_tools)
         prepared = self._prepare_messages(messages)
+        
+        if azure_tools:
+            logger.info(f"DualChatClient: Tool calling available with {len(azure_tools)} tools.")
+        else:
+            logger.warning("DualChatClient: NO TOOLS found in streaming request context.")
 
         MAX_TOOL_ROUNDS = 5
         final_text = ""
 
         for round_num in range(MAX_TOOL_ROUNDS):
-            response_text, tool_calls = await self._run_azure(prepared, azure_tools, tool_choice)
+            if self.provider == "GEMINI":
+                response_text, tool_calls = await self._run_gemini(prepared)
+            elif self.provider == "OLLAMA":
+                response_text, tool_calls = await self._run_ollama(prepared)
+            else:
+                response_text, tool_calls = await self._run_azure(prepared, azure_tools, tool_choice)
+            
             response_text = response_text or ""
 
             handoff_calls, regular_calls = [], []
@@ -147,7 +155,7 @@ class DualChatClient(BaseChatClient):
             role=Role.ASSISTANT,
         )
 
-    # ── Provider implementations ───────────────────────────────────────
+    # Provider implementations
 
     async def _run_azure(self, messages, tools=None, tool_choice=None):
         try:
@@ -188,7 +196,7 @@ class DualChatClient(BaseChatClient):
             logger.error(f"Ollama error: {e}")
             return "Local model is offline.", None
 
-    # ── Helpers ────────────────────────────────────────────────────────
+    # Helpers
 
     @staticmethod
     def _prepare_messages(messages):
@@ -219,17 +227,40 @@ class DualChatClient(BaseChatClient):
     def _build_tool_registry(raw_tools):
         if not raw_tools:
             return None, {}
+        
+        # Bolster handoff tool descriptions with domain keywords from registry
+        from app.agents.registry import get_agent_config_by_name
+
         azure_tools = []
         tool_map = {}
         for tool in raw_tools:
+            name = tool.name
+            desc = tool.description
+            
+            # Bolster description if it's a handoff tool
+            if name.startswith('handoff_to_'):
+                target_name = name.replace('handoff_to_', '')
+                config = get_agent_config_by_name(target_name)
+                if config and config.domain_keywords:
+                    keywords = ", ".join(config.domain_keywords)
+                    desc = f"{desc}. MANDATORY use this tool for all questions about: {keywords}."
+
             if hasattr(tool, "parameters"):
                 try:
                     schema = tool.parameters() if callable(tool.parameters) else tool.parameters
-                    azure_tools.append({"type": "function", "function": {"name": tool.name, "description": tool.description, "parameters": schema}})
+                    azure_tools.append({"type": "function", "function": {"name": name, "description": desc, "parameters": schema}})
                     if hasattr(tool, 'func'):
-                        tool_map[tool.name] = tool.func
+                        tool_map[name] = tool.func
                 except Exception as e:
                     logger.warning(f"Tool conversion failed: {e}")
             elif isinstance(tool, dict):
+                # If already a dict, try to bolster internal description
+                if 'function' in tool and tool['function'].get('name', '').startswith('handoff_to_'):
+                    orig_desc = tool['function'].get('description', '')
+                    target_name = tool['function']['name'].replace('handoff_to_', '')
+                    config = get_agent_config_by_name(target_name)
+                    if config and config.domain_keywords:
+                        keywords = ", ".join(config.domain_keywords)
+                        tool['function']['description'] = f"{orig_desc}. MANDATORY use this tool for all questions about: {keywords}."
                 azure_tools.append(tool)
         return azure_tools, tool_map

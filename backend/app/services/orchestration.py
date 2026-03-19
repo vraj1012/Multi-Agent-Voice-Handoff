@@ -1,7 +1,4 @@
-"""
-Orchestration Service — White-labeled multi-agent handoff workflow.
-Reads agent config from registry.py. No changes needed here to add/remove agents.
-"""
+"""Orchestration Service — White-labeled multi-agent handoff workflow."""
 import re
 import logging
 from typing import Optional, List
@@ -16,7 +13,7 @@ from app.agents.registry import load_agents, get_start_agent_name, get_handoff_r
 logger = logging.getLogger(__name__)
 
 
-def _extract_response(events: list) -> dict:
+def _extract_response(events: list, agents: Optional[dict] = None) -> dict:
     """Extract agent name, response text, and handoff info from workflow events."""
     agent_name = "Unknown"
     response_text = ""
@@ -46,7 +43,19 @@ def _extract_response(events: list) -> dict:
                         break
                 if func_name.startswith('handoff_to_'):
                     handoff_occurred = True
-                    handoff_target = func_name.replace('handoff_to_', '')
+                    target_candidate = func_name.replace('handoff_to_', '')
+                    
+                    # Case-insensitive agent lookup
+                    handoff_target = None
+                    if agents:
+                        for name in agents.keys():
+                            if name.lower() == target_candidate.lower():
+                                handoff_target = name
+                                break
+                    
+                    if not handoff_target:
+                        handoff_target = target_candidate # Fallback
+                        
                     logger.info(f"Handoff detected: {author} -> {handoff_target}")
 
         if isinstance(event, RequestInfoEvent):
@@ -107,7 +116,7 @@ class OrchestrationService:
         return builder.build()
 
     async def process_message(self, user_message: str) -> dict:
-        """Process user message through handoff workflow. Returns per-agent responses."""
+        """Process user message through handoff workflow."""
         MAX_TURNS = 3
         current_message = user_message
         agent_messages: List[dict] = []
@@ -134,7 +143,7 @@ class OrchestrationService:
                 else:
                     break
 
-                result = _extract_response(events)
+                result = _extract_response(events, self.agents)
                 self._pending_requests = result.pop("_pending_requests", [])
 
                 result_agent = result['agent']

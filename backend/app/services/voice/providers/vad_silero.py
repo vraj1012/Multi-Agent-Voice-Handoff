@@ -1,6 +1,4 @@
-"""
-VAD Provider — Silero VAD (local, PyTorch).
-"""
+"""VAD Provider — Silero VAD (local, PyTorch)."""
 import torch
 import logging
 import numpy as np

@@ -1,6 +1,4 @@
-"""
-TTS Provider — VibeVoice (local, CUDA/CPU).
-"""
+"""TTS Provider — VibeVoice (local, CUDA/CPU)."""
 import os
 import sys
 import copy
@@ -36,7 +34,7 @@ class VibeVoiceTTS(TTSProvider):
         self.model_path = settings.TTS_MODEL_PATH
         self.device = settings.DEVICE
         self.sample_rate = 24000
-        self.inference_steps = 5
+        self.inference_steps = 4
 
         self.processor: Optional[VibeVoiceStreamingProcessor] = None
         self.model: Optional[VibeVoiceStreamingForConditionalGenerationInference] = None
@@ -72,6 +70,29 @@ class VibeVoiceTTS(TTSProvider):
         self.model.eval()
         self.model.set_ddpm_inference_steps(num_steps=self.inference_steps)
         logger.info("VibeVoice loaded.")
+        
+        # --- WARMUP ---
+        # The first PyTorch CUDA forward pass allocates memory and sets up CuDNN,
+        # which takes ~20-30 seconds. We do a dummy pass here so it happens during
+        # server startup instead of blocking the user's first interaction.
+        if self.device == "cuda":
+            logger.info("Warming up VibeVoice CUDA graph (this may take 20-30s)...")
+            try:
+                dummy_text = "Warmup."
+                processed = self.processor(
+                    text=dummy_text, return_tensors="pt", padding=True, return_attention_mask=True
+                )
+                inputs = {k: v.to(self.device) if hasattr(v, "to") else v for k, v in processed.items()}
+                # Run a tiny generation step
+                self.model.generate(
+                    **inputs, max_new_tokens=10, 
+                    tokenizer=self.processor.tokenizer,
+                    generation_config={"do_sample": False, "temperature": 1.0, "top_p": 1.0},
+                    verbose=False
+                )
+                logger.info("VibeVoice CUDA warmup complete.")
+            except Exception as e:
+                logger.warning(f"VibeVoice warmup failed (will try again on first request): {e}")
 
     def _load_voices(self):
         voices_dir = _BACKEND_DIR / "vibevoice_model" / "VibeVoice" / "demo" / "voices" / "streaming_model"
@@ -128,20 +149,8 @@ class VibeVoiceTTS(TTSProvider):
             except Exception as e:
                 logger.error(f"TTS generation error: {e}")
                 if self.device == "cuda":
-                    try:
-                        self.model.to("cpu")
-                        cpu_inputs = {k: v.to("cpu") if hasattr(v, "to") else v for k, v in inputs.items()}
-                        self.model.generate(
-                            **cpu_inputs, max_new_tokens=None, cfg_scale=1.5,
-                            tokenizer=self.processor.tokenizer,
-                            generation_config={"do_sample": False, "temperature": 1.0, "top_p": 1.0},
-                            audio_streamer=streamer, stop_check_fn=stop_event.is_set,
-                            verbose=False, refresh_negative=True,
-                            all_prefilled_outputs=copy.deepcopy(prefilled),
-                        )
-                        self.model.to("cuda")
-                    except Exception:
-                        streamer.end()
+                    streamer.end()
+                    logger.error(f"TTS CUDA generation failed permanently. CPU fallback is disabled.")
                 else:
                     streamer.end()
 

@@ -13,10 +13,7 @@ class IngestionService:
         self.rag_engine = get_rag_engine()
 
     def load_documents_from_directory(self, directory_path: str) -> List[Dict]:
-        """
-        Reads all PDF and TXT files from a directory.
-        Returns a list of dicts: {'content': str, 'metadata': dict}
-        """
+        """Read all PDF and TXT files from a directory."""
         documents = []
         if not os.path.exists(directory_path):
             logger.warning(f"Directory not found: {directory_path}")
@@ -56,9 +53,7 @@ class IngestionService:
             return ""
 
     def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
-        """
-        Splits text into chunks of roughly `chunk_size` characters with `overlap`.
-        """
+        """Split text into chunks with overlap."""
         chunks = []
         start = 0
         while start < len(text):
@@ -69,11 +64,7 @@ class IngestionService:
         return chunks
 
     def ingest_directory(self, directory_path: str, collection_name: str):
-        """
-        1. Load documents from directory
-        2. Chunk them
-        3. Add to ChromaDB collection
-        """
+        """Load, chunk, and ingest documents into ChromaDB."""
         logger.info(f"Starting ingestion for {collection_name} from {directory_path}")
         
         raw_docs = self.load_documents_from_directory(directory_path)
@@ -107,10 +98,7 @@ class IngestionService:
             logger.warning("No content to ingest after processing.")
 
     def run_full_ingestion(self):
-        """
-        Ingests all configured agent storage paths.
-        Scalable: Add more agents here as needed.
-        """
+        """Ingest all configured agent knowledge paths."""
         # 1. Technical Agent
         self.ingest_directory(
             settings.KNOWLEDGE_BASE_TECHNICAL, 

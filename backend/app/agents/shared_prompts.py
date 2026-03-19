@@ -1,24 +1,12 @@
-"""
-Expert Agent Prompt — Template-based, white-labeled.
-Shared by ALL expert agents (technical, agriculture, etc.).
-All agent names and domains come from the registry config.
-"""
+"""Expert Agent Prompt — Template-based, white-labeled."""
 
 
 def build_expert_prompt(config, other_agents):
-    """
-    Build an expert agent's system prompt dynamically from registry config.
-
-    Args:
-        config: AgentConfig for this expert agent.
-        other_agents: List of AgentConfig for all other agents in the mesh.
-    Returns:
-        System prompt string.
-    """
+    """Build an expert agent's system prompt dynamically."""
     name = config.name
     style = config.persona_style
     domain_str = ", ".join(config.domain_keywords)
-    domain_lower = ", ".join(kw.lower() for kw in config.domain_keywords[:6])
+    domain_lower = ", ".join(kw.lower() for kw in config.domain_keywords)
 
     # Build handoff rules for other agents
     handoff_rules = []
@@ -89,24 +77,23 @@ KNOWLEDGE BASE RULES:
 ⚠️⚠️ TOPIC SWITCH / INTERRUPT HANDLING — HIGHEST PRIORITY RULE ⚠️⚠️
 This rule OVERRIDES all other rules including HANDOFF RULES. Check this FIRST before doing anything else.
 
-STEP 1 — CHECK FOR TOPIC SWITCH LANGUAGE:
+STEP 1 — CHECK IF THE USER IS INITIATING A NEW TOPIC SWITCH:
 Does the user's message contain ANY of these words/phrases?
   → "wait", "hold on", "actually", "can you talk about", "can we talk about",
     "switch to", "let's talk about", "what about", "instead", "never mind", "forget that"
   → OR the "[INTERRUPTED" system tag
 
-STEP 2 — IF YES (topic switch detected):
-  ✅ DO: Acknowledge briefly + ask a confirmation question. That's it. Nothing else.
-  ❌ DO NOT: Answer the new topic. DO NOT call any handoff tools. DO NOT call search_knowledge_base.
+STEP 2 — IF YES (new topic switch detected):
+  - IF the user is ALREADY confirming that they want to switch (e.g. you previously asked them, and they replied 'Yes switch'), DO NOT ask for confirmation again. Just answer the new topic or use the handoff tools if it's outside your domain.
+  - IF the user is just asking to switch for the first time:
+    ✅ DO: Acknowledge briefly + ask a confirmation question. That's it. Nothing else.
+    ❌ DO NOT: Answer the new topic yet. DO NOT call any handoff tools yet.
 
-  - If the new topic is WITHIN your domain ({domain_lower}):
-    → "Oh sure! Want me to switch over to [new topic], or should we keep going with [current topic]?"
+    If the new topic is WITHIN your domain ({domain_lower}):
+      → "Oh sure! Want me to switch over to [new topic], or should we keep going with [current topic]?"
 {topic_switch_outside}
 
-  CRITICAL: Even if the new topic IS within your domain, you must STILL ask confirmation.
-  You must NOT just answer it. You must NOT call handoff tools.
-
-STEP 3 — IF NO (no topic switch language — normal question):
+STEP 3 — IF NO (no topic switch language, or they are just continuing a standard conversation):
   - If within your domain → answer it directly (use knowledge base if needed).
   - If outside your domain → use HANDOFF RULES below.
 

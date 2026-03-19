@@ -31,19 +31,25 @@ class ConversationRecorder:
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         
         self._audio_segments: list = []  # List of (pcm_bytes, sample_rate, label)
+        self._transcript: list = []      # List of (role, text) strings
         self._session_start = datetime.now()
         self._filename = self._generate_filename()
         
         logger.info(f"Conversation recorder initialized: {self._filename}")
     
     def _generate_filename(self) -> str:
-        """Generate filename: {number}_{datetime}.wav"""
+        """Generate filename: {number}_{datetime}"""
         # Count existing recordings
         existing = list(RECORDINGS_DIR.glob("*.wav"))
         next_num = len(existing) + 1
         
         dt_str = self._session_start.strftime("%Y-%m-%d_%H-%M-%S")
-        return f"{next_num:03d}_{dt_str}.wav"
+        return f"{next_num:03d}_{dt_str}"
+        
+    def add_transcript(self, role: str, text: str):
+        """Add a text entry to the conversation transcript."""
+        if text and text.strip():
+            self._transcript.append(f"{role}: {text.strip()}")
     
     def add_user_audio(self, pcm_data: bytes):
         """Add user's speech audio (16kHz PCM16)."""
@@ -99,8 +105,9 @@ class ConversationRecorder:
         if not combined:
             return None
         
+        
         # Build WAV
-        filepath = RECORDINGS_DIR / self._filename
+        filepath = RECORDINGS_DIR / f"{self._filename}.wav"
         data_size = len(combined)
         
         header = struct.pack(
@@ -122,6 +129,12 @@ class ConversationRecorder:
         
         with open(filepath, 'wb') as f:
             f.write(header + combined)
+            
+        # Write text transcript if available
+        if self._transcript:
+            txt_filepath = RECORDINGS_DIR / f"{self._filename}.txt"
+            with open(txt_filepath, 'w', encoding='utf-8') as f:
+                f.write("\n".join(self._transcript) + "\n")
         
         duration = data_size / (self.TARGET_SAMPLE_RATE * self.CHANNELS * self.SAMPLE_WIDTH)
         logger.info(f"💾 Conversation saved: {filepath} ({duration:.1f}s, {len(self._audio_segments)} segments)")

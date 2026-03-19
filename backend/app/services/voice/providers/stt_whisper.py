@@ -1,6 +1,4 @@
-"""
-STT Provider — FasterWhisper with GPU acceleration.
-"""
+"""STT Provider — FasterWhisper with GPU acceleration."""
 import logging
 from faster_whisper import WhisperModel
 from app.core.config import settings

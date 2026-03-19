@@ -27,12 +27,17 @@ class StreamManager:
 
         # VAD thresholds
         self.SILENCE_THRESHOLD = 40       # ~1.3s silence to end turn (tolerates natural pauses)
-        self.MIN_SPEECH_FRAMES = 2        # ~64ms min speech (captures short words like "yes", "no")
+        self.MIN_SPEECH_FRAMES = 5        # ~160ms min speech (filters out noise, still captures "yes", "no")
+
+        # Post-turn cooldown: ignore speech for N seconds after a response completes
+        self._cooldown_until = 0.0
+        self.POST_TURN_COOLDOWN = 2.0     # 2 seconds cooldown after each turn
 
         # Barge-in state
         self._cancelled = False
         self._is_responding = False
         self.was_interrupted = False
+        self._turn_just_completed = False
 
         # Sliding window barge-in (tolerates natural syllable gaps)
         self._barge_in_window = []
@@ -92,6 +97,7 @@ class StreamManager:
             self._cancelled = True
             self.was_interrupted = True
             self._playback_end_time = 0.0
+            self._cooldown_until = 0.0  # Immediately start listening to capture what they interrupted with
 
     def is_cancelled(self) -> bool:
         return self._cancelled
@@ -113,6 +119,10 @@ class StreamManager:
 
     async def process_chunk(self, chunk: bytes) -> AsyncGenerator[Dict[str, Any], None]:
         """Process audio chunk. Yields events when a turn completes."""
+        # During cooldown period, skip VAD entirely to prevent phantom turns
+        if time.time() < self._cooldown_until:
+            return
+
         self.buffer.append(chunk)
 
         try:
@@ -164,6 +174,13 @@ class StreamManager:
                                     break
 
                                 evt_type = event.get("type")
+                                
+                                # Intercept and record textual transcripts
+                                if evt_type == "transcript" and event.get("role") == "user":
+                                    self.recorder.add_transcript("User", event["content"])
+                                elif evt_type == "text":
+                                    self.recorder.add_transcript(event.get("agent", "Agent"), event["content"])
+                                    
                                 if evt_type == "status" and event.get("content") == "silent":
                                     yield {"type": "status", "content": "listening"}
                                     break
@@ -188,6 +205,14 @@ class StreamManager:
                             self._is_responding = False
                             self._cancelled = False
                             self.recorder.add_silence(500)
+                            # Drain stale buffered audio to prevent phantom second turn
+                            self.buffer = []
+                            self.speech_frames = 0
+                            self.silence_frames = 0
+                            self.is_speaking = False
+                            self._turn_just_completed = True
+                            # Start cooldown to ignore noise/echo after response
+                            self._cooldown_until = time.time() + self.POST_TURN_COOLDOWN
 
         except Exception as e:
             logger.error(f"Error processing chunk: {e}", exc_info=True)

@@ -104,6 +104,8 @@ async def receive_messages(websocket):
                             print(f"\nℹ️ Status: {status}")
                     elif msg.get("type") == "metadata":
                         pass
+                    elif msg.get("type") == "transcript" and msg.get("role") == "user":
+                        print(f"\n👤 You: {msg.get('content')}")
                 except json.JSONDecodeError:
                     print(f"\nReceived unknown message: {message}")
     except websockets.exceptions.ConnectionClosed:
@@ -211,13 +213,25 @@ def _playback_thread_blocking_mode(output_device=None):
         # Sub-chunk size: 480 samples * 2 bytes = 960 bytes = 20ms at 24kHz
         SUB_CHUNK_BYTES = 480 * 2
         
+        is_first_chunk = True
+        
         while True:
             data = output_queue.get()
             if data is None:
                 break
             
             if abort_playback.is_set():
+                is_first_chunk = True
                 continue
+                
+            if is_first_chunk:
+                # Feed 250ms of silence as a jitter buffer to absorb network/generation stutter
+                try:
+                    stream.write(b'\x00' * int(24000 * 2 * 0.25))
+                except Exception:
+                    pass
+                is_first_chunk = False
+
             
             # Break large audio chunks into tiny sub-chunks (~20ms each)
             # Check abort between each for instant stop
@@ -294,24 +308,24 @@ async def main():
     if enable_preroll:
         print("✅ Pre-roll enabled (250ms silence before each response)")
 
-    # Start audio input stream
-    input_stream = sd.RawInputStream(
-        device=input_device_idx,
-        samplerate=SAMPLE_RATE,
-        blocksize=CHUNK_SIZE,
-        dtype=DTYPE,
-        channels=CHANNELS,
-        callback=input_callback
-    )
-
-    # Start playback thread with selected output device
-    player = threading.Thread(target=playback_thread, args=(output_device_idx, enable_preroll), daemon=True)
-    player.start()
-
     print(f"Connecting to {uri}...")
     async with websockets.connect(uri, max_size=10 * 1024 * 1024, open_timeout=60, ping_timeout=60) as websocket:
         print("✅ Connected!")
         print("💡 Barge-in: Speak clearly while the agent is talking to interrupt")
+        
+        # Start audio input stream
+        input_stream = sd.RawInputStream(
+            device=input_device_idx,
+            samplerate=SAMPLE_RATE,
+            blocksize=CHUNK_SIZE,
+            dtype=DTYPE,
+            channels=CHANNELS,
+            callback=input_callback
+        )
+
+        # Start playback thread with selected output device
+        player = threading.Thread(target=playback_thread, args=(output_device_idx, enable_preroll), daemon=True)
+        player.start()
         
         with input_stream:
             sender_task = asyncio.create_task(send_audio(websocket))

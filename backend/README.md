@@ -65,9 +65,9 @@ A **white-labeled**, fully configurable multi-agent voice orchestration system. 
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  Voice Providers (swappable via Factory pattern)         │   │
-│  │  ├── stt_whisper.py    (FasterWhisper, GPU-accelerated)  │   │
-│  │  ├── tts_vibevoice.py  (VibeVoice, local CUDA/CPU)      │   │
-│  │  └── vad_silero.py     (Silero VAD, real-time)           │   │
+│  │  ├── stt_whisper.py    (FasterWhisper Medium / Turbo)    │   │
+│  │  ├── tts_chatterbox.py (Chatterbox Turbo / VibeVoice)    │   │
+│  │  └── vad_ten.py        (TEN VAD / Silero VAD)            │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  ┌──────────────────────────────────────────────────────────┐   │
@@ -91,20 +91,20 @@ A **white-labeled**, fully configurable multi-agent voice orchestration system. 
 2. Client streams raw PCM audio chunks (16kHz, 16-bit mono, 512 samples/chunk)
 
 3. StreamManager receives each chunk:
-   ├── VAD (Silero) checks: is the user speaking?
+   ├── VAD (Silero or TEN VAD) checks: is the user speaking?
    ├── Buffers audio while speech is detected
    ├── After ~1.3s of silence → end-of-turn detected
    └── If user speaks during AI playback → barge-in triggered
 
 4. VoiceOrchestrator processes the completed turn:
-   ├── STT: FasterWhisper transcribes buffered audio → text
+   ├── STT: FasterWhisper (Medium or Large-v3-Turbo) transcribes audio → text
    ├── Context tagging: farewell detection, topic switch detection
    ├── OrchestrationService processes message through agent mesh:
    │   ├── Active agent receives message
    │   ├── Agent may call handoff_to_<Name>() → triggers handoff
    │   ├── Agent may call search_knowledge_base() → RAG lookup
    │   └── Response collected with agent name
-   └── TTS: VibeVoice synthesizes response sentence-by-sentence
+   └── TTS: VibeVoice or Chatterbox Turbo synthesizes response
 
 5. Each TTS audio chunk is streamed back to client via WebSocket
 6. Client plays audio; can interrupt (barge-in) at any time
@@ -154,72 +154,72 @@ User: "What about growing tomatoes?"
 | File | Purpose |
 |------|---------|
 | `endpoints.py` | Text-only chat endpoint (`POST /api/v1/chat`) and root health check. Uses `settings.PROJECT_NAME` for the welcome message. |
-| `voice_router.py` | Batch voice endpoint (`POST /api/v1/voice/chat`). Accepts audio file upload, returns synthesized audio response with metadata headers. Also has `/voice/health` to verify STT/TTS/VAD models are loaded. |
-| `websocket_router.py` | Real-time bidirectional voice streaming (`WS /api/v1/ws/voice`). Creates a `StreamManager` per connection. Runs concurrent receive and process loops. Handles barge-in messages and saves conversation recordings on disconnect. |
+| `voice_router.py` | Batch voice endpoint (`POST /api/v1/voice/chat`). Accepts audio file upload, returns synthesized audio response with metadata headers. Also has `/voice/health` to verify models are loaded. |
+| `websocket_router.py` | Real-time bidirectional voice streaming (`WS /api/v1/ws/voice`). Creates a `StreamManager` per connection. Runs concurrent receive and process loops. |
 
 ### Service Layer — `app/services/`
 
 | File | Purpose |
 |------|---------|
-| `voice_orchestrator.py` | The main voice pipeline: STT → Agent → TTS. Handles farewell detection, topic-switch tagging, interrupt context. Streams TTS sentence-by-sentence. Loads voice mapping from registry (`get_agent_voice_map()`). |
-| `orchestration.py` | Multi-agent handoff workflow engine. Builds the `HandoffBuilder` workflow from `registry.py` config. Processes messages through the active agent, handles handoff chains (with loop protection), and rebuilds the workflow on each handoff. |
-| `voice/stream_manager.py` | Real-time audio buffer management. Receives raw PCM chunks, runs Silero VAD for turn detection, implements sliding-window barge-in (6/12 frames), and tracks estimated client playback timing. |
-| `voice/factory.py` | Factory pattern for voice providers. Lazily initializes singleton instances of STT (FasterWhisper), TTS (VibeVoice), and VAD (Silero). Swap providers by changing the import here. |
-| `voice/interfaces.py` | Abstract base classes defining the contracts for `STTProvider`, `TTSProvider`, and `VADProvider`. Any new provider must implement these interfaces. |
-| `voice/recorder.py` | Records full conversations (user + agent audio) to numbered WAV files in `recordings/`. Handles sample-rate conversion between user audio (16kHz) and agent audio (24kHz). |
+| `voice_orchestrator.py` | The main voice pipeline: STT → Agent → TTS. Handles farewell detection, topic-switch tagging, interrupt context. Streams TTS sentence-by-sentence. |
+| `orchestration.py` | Multi-agent handoff workflow engine. Builds the `HandoffBuilder` workflow from `registry.py` config. Processes messages through the active agent. |
+| `voice/stream_manager.py` | Real-time audio buffer management. Receives raw PCM chunks, runs VAD (Silero/TEN) for turn detection, implements sliding-window barge-in. |
+| `voice/factory.py` | Factory pattern for voice providers. Lazily initializes singleton instances of STT, TTS, and VAD. Swap providers by changing imports or config here. |
+| `voice/interfaces.py` | Abstract base classes defining the contracts for `STTProvider`, `TTSProvider`, and `VADProvider`. |
+| `voice/recorder.py` | Records full conversations (user + agent audio) to numbered WAV files in `recordings/`. |
 
 ### Voice Providers — `app/services/voice/providers/`
 
 | File | Purpose |
 |------|---------|
-| `stt_whisper.py` | **FasterWhisper** STT provider. Loads the Whisper model (configurable size) on GPU/CPU. Transcribes with VAD filtering and hallucination rejection (`no_speech_prob`, `language_probability` thresholds). |
-| `tts_vibevoice.py` | **VibeVoice** TTS provider. Loads the Microsoft VibeVoice streaming model locally. Supports multiple voice presets (`.pt` files), voice caching, and threaded generation. Falls back from CUDA → CPU on error. |
-| `vad_silero.py` | **Silero VAD** provider. Provides both file-level speech segmentation and real-time per-chunk speech detection (512-sample windows at 16kHz). |
+| `stt_whisper.py` | **FasterWhisper** STT provider. Loads Whisper models (Medium or Large-v3-Turbo) on GPU/CPU. |
+| `tts_chatterbox.py` | **(New)** Nitro-speed Chatterbox TTS provider with zero-shot voice cloning support. |
+| `tts_vibevoice.py` | **VibeVoice** TTS provider. Loads the Microsoft VibeVoice streaming model locally. |
+| `vad_ten.py` | **(New)** C-native TEN VAD for ultra-fast response times. |
+| `vad_silero.py` | **Silero VAD** provider. Provides real-time per-chunk speech detection. |
 
 ### Agent Layer — `app/agents/`
 
 | File | Purpose |
 |------|---------|
-| `registry.py` | **⭐ Single source of truth** for all agent identity. Defines `AgentConfig` with: name, factory path, voice_key, domain_keywords, description, persona_style, greeting_examples, farewell_example, rag_collection. Provides helpers: `load_agents()`, `get_start_agent_name()`, `get_handoff_rules()`, `get_agent_voice_map()`, `get_agent_config_by_name()`. |
-| `shared_prompts.py` | Shared `build_expert_prompt(config, other_agents)` template function. Generates system prompts dynamically from registry config — voice mode rules, persona, handoff rules, topic-switch handling, farewell handling, and knowledge base instructions. |
+| `registry.py` | **⭐ Single source of truth** for all agent identity. Defines `AgentConfig` with: name, voice_key, experts, rag_collection, etc. |
+| `shared_prompts.py` | Shared `build_expert_prompt(config, other_agents)` template function. Generates system prompts dynamically. |
 | `receptionist/agent.py` | Factory function that creates the receptionist/router agent from registry config. |
-| `receptionist/prompts.py` | `build_receptionist_prompt(config, other_agents)` — generates the router agent's prompt with dynamic routing rules and handoff examples for all registered expert agents. |
-| `technical_expert/agent.py` | Factory function that creates a domain expert agent from registry config. Creates RAG tool if `rag_collection` is set. |
-| `technical_expert/prompts.py` | Re-exports `build_expert_prompt` from `shared_prompts.py`. |
-| `agriculture_expert/agent.py` | Same factory pattern as technical_expert, driven by registry config. |
-| `agriculture_expert/prompts.py` | Re-exports `build_expert_prompt` from `shared_prompts.py`. |
+| `receptionist/prompts.py` | Router agent's prompt generator with dynamic routing rules. |
+| `technical_expert/agent.py` | Factory function that creates a domain expert agent (with optional RAG). |
+| `agriculture_expert/agent.py` | Domain expert factory for agriculture domain. |
 
 ### Core Layer — `app/core/`
 
 | File | Purpose |
 |------|---------|
-| `config.py` | Pydantic `Settings` class that reads from `.env`. Defines all configurable values: server (host, port), AI models (Whisper size, device, compute type), LLM provider (Azure/Gemini/Ollama), RAG paths, and API keys. |
-| `adapter.py` | `DualChatClient` — universal LLM adapter supporting Azure OpenAI, Gemini, and Ollama. Handles both batch and streaming responses, internal tool execution loops, and handoff tool passthrough to the agent framework. |
-| `llm_factory.py` | `LLMFactory` — synchronous LLM client factory (used for non-streaming calls). Returns configured Azure/OpenAI/Gemini/Ollama clients. |
+| `config.py` | Pydantic `Settings` class that reads from `.env`. Defines server, AI models, LLM provider, and API keys. |
+| `adapter.py` | `DualChatClient` — universal LLM adapter supporting Azure OpenAI, Gemini, and Ollama. |
+| `llm_factory.py` | `LLMFactory` — synchronous LLM client factory. |
 
 ### RAG Layer — `app/rag/`
 
 | File | Purpose |
 |------|---------|
-| `engine.py` | `RAGEngine` — ChromaDB wrapper. Manages collections, adds documents with embeddings, and queries by embedding similarity. |
-| `embeddings.py` | `EmbeddingService` — uses `sentence-transformers` (`all-MiniLM-L6-v2` by default) to generate vector embeddings for RAG documents and queries. |
-| `ingestion.py` | `IngestionService` — reads PDF/TXT files from knowledge directories, chunks them (~500 chars with overlap), generates embeddings, and stores in ChromaDB. |
-| `tools.py` | `create_rag_tool(collection_name)` — wraps RAG queries as an `AIFunction` that agents can call via `search_knowledge_base()`. |
+| `engine.py` | `RAGEngine` — ChromaDB wrapper for collection management and similarity search. |
+| `embeddings.py` | `EmbeddingService` — generates vector embeddings using `sentence-transformers`. |
+| `ingestion.py` | `IngestionService` — reads documents, chunks them, and stores them in the vector database. |
+| `tools.py` | `create_rag_tool(collection_name)` — wraps RAG queries as an `AIFunction` for agents. |
 
 ### Utility Scripts — `scripts/`
 
 | File | Purpose |
 |------|---------|
-| `ingest_knowledge.py` | CLI script to ingest knowledge base documents into ChromaDB. Run: `python scripts/ingest_knowledge.py` from `backend/`. |
-| `interactive_voice_client.py` | Standalone Python voice client for testing. Connects to the WebSocket, captures mic audio, plays back agent responses, supports barge-in and device selection. No browser needed. |
+| `ingest_knowledge.py` | CLI script to ingest knowledge base documents into ChromaDB. |
+| `interactive_voice_client.py` | Standalone Python voice client for real-time testing with mic audio and barge-in support. |
 
 ### Other Files
 
 | File | Purpose |
 |------|---------|
-| `.env` | Environment variables (API keys, model paths, server config). **Never commit this.** |
-| `.env.example` | Template `.env` with placeholder values. Copy this to `.env` and fill in your keys. |
-| `.gitignore` | Protects `.env`, `__pycache__`, model files, and recordings from being committed. |
+| `.env` | Environment variables (API keys, model sizes, server config). |
+| `.env.example` | Template `.env` with placeholder values. |
+| `.gitignore` | Protects sensitive files and local models from version control. |
 
 ---
 
@@ -233,7 +233,7 @@ Copy `.env.example` to `.env` and configure:
 cp .env.example .env
 ```
 
-| Variable | Description | Default |
+| Variable | Description | Default / Recommended |
 |----------|-------------|---------|
 | `LLM_PROVIDER` | LLM backend: `AZURE`, `GEMINI`, or `OLLAMA` | `AZURE` |
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI API key | — |
@@ -242,8 +242,8 @@ cp .env.example .env
 | `GEMINI_API_KEY` | Google Gemini API key | — |
 | `OLLAMA_URL` | Local Ollama server URL | `http://localhost:11434` |
 | `OLLAMA_MODEL` | Ollama model name | `llama3:8b-instruct-q4_K_M` |
-| `WHISPER_MODEL_SIZE` | Whisper model: `tiny`, `base`, `small`, `medium`, `large` | `medium` |
-| `TTS_MODEL_PATH` | VibeVoice model path or HuggingFace ID | `microsoft/VibeVoice-Realtime-0.5B` |
+| `WHISPER_MODEL_SIZE` | Whisper model: `medium` or `large-v3-turbo` | `large-v3-turbo` |
+| `TTS_MODEL_PATH` | TTS model path or HuggingFace ID | `microsoft/VibeVoice-Realtime-0.5B` |
 | `HOST` / `PORT` | Server bind address | `0.0.0.0:8000` |
 | `CHROMA_DB_PATH` | ChromaDB persistence directory | `./chroma_db` |
 
@@ -263,57 +263,47 @@ sentence-transformers
 chromadb
 PyPDF2
 numpy
-sounddevice        # only for interactive_voice_client.py
-websockets         # only for interactive_voice_client.py
+sounddevice
+websockets
 ```
-
-The VibeVoice TTS model must be placed at `backend/vibevoice_model/VibeVoice/`.
 
 ---
 
 ## Getting Started
 
 ### 1. Setup Environment
-
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys and preferred model sizes
 ```
 
 ### 2. Ingest Knowledge Base (Optional)
-
 ```bash
-# Place .pdf/.txt files in knowledge/technical/ and knowledge/agriculture/
+# Place .pdf/.txt files in knowledge folders
 python scripts/ingest_knowledge.py
 ```
 
 ### 3. Start the Server
-
 ```bash
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### 4. Test with the Voice Client
-
 ```bash
 python scripts/interactive_voice_client.py
 ```
-
-Or connect any WebSocket client to `ws://localhost:8000/api/v1/ws/voice`.
 
 ---
 
 ## API Reference
 
 ### WebSocket — Real-Time Voice
-
 **`WS /api/v1/ws/voice`**
-
-- **Client → Server:** Raw PCM audio bytes (16kHz, 16-bit mono, 512 samples/chunk)
+- **Client → Server:** Raw PCM audio bytes (16kHz, 16-bit mono)
 - **Server → Client:** Binary audio (24kHz PCM) or JSON status messages
 
-JSON message types from server:
+**JSON Status Messages:**
 ```json
 {"type": "status", "content": "processing|listening|interrupted|call_ended|silent"}
 {"type": "text", "content": "agent response text", "agent": "AgentName", "handoff": false}
@@ -321,77 +311,36 @@ JSON message types from server:
 {"type": "audio", "content": "<binary>", "agent": "AgentName", "chunk": 0}
 ```
 
-Client can send JSON for barge-in:
-```json
-{"type": "barge_in"}
-```
-
 ### REST — Batch Voice
-
 **`POST /api/v1/voice/chat`**
-
 Upload an audio file, receive synthesized audio response.
-
-- **Request:** `multipart/form-data` with `file` field
-- **Response:** `audio/wav` body with metadata headers:
-  - `X-Agent-Name`, `X-Response-Text`, `X-Handoff`, `X-Time-Taken`
+- **Response Headers**: `X-Agent-Name`, `X-Response-Text`, `X-Handoff`, `X-Time-Taken`
 
 ### REST — Text Chat
-
 **`POST /api/v1/chat`**
-
 ```json
-// Request
 {"message": "Tell me about machine learning"}
-
-// Response
-{"agent": "Emily", "message": "...", "handoff_occurred": true}
+// Returns: {"agent": "Emily", "message": "...", "handoff_occurred": true}
 ```
-
-### Health Checks
-
-- `GET /health` — Server health
-- `GET /api/v1/voice/health` — Voice models loaded status
 
 ---
 
 ## White-Labeling Guide
 
 ### How to Rebrand
-
 Edit **only** `app/agents/registry.py`:
+- Rename agents, update personas, and set the `voice_key` to match your desired identity.
+- Everything auto-generates from this config (system prompts, handoff logic, etc.).
 
-```python
-AGENT_REGISTRY = [
-    AgentConfig(
-        name="Sarah",                    # ← Change agent name
-        factory="app.agents.receptionist.agent.create_agent",
-        is_start_agent=True,
-        voice_key="en-Grace_woman",      # ← Change voice
-        description="Friendly front-desk assistant.",
-        persona_style="cheerful and professional",
-        greeting_examples=["Hi there! I'm Sarah!"],
-        farewell_example="Great talking to you! Bye!",
-    ),
-    AgentConfig(
-        name="Max",                      # ← Change agent name
-        factory="app.agents.technical_expert.agent.create_agent",
-        voice_key="en-Emma_woman",
-        domain_keywords=["Finance", "Stocks", "Investing"],  # ← Change domain
-        description="Finance Expert specializing in investments.",
-        persona_style="confident and knowledgeable advisor",
-        rag_collection="finance_collection",
-        knowledge_base_path="./knowledge/finance",
-    ),
-    # Add/remove agents as needed
-]
-```
+### Custom Voices (Voice Cloning)
+The **Chatterbox TTS** provider supports zero-shot voice cloning:
+1. Record ~10 seconds of source audio (WAV).
+2. Save to `backend/app/agents/voices/<voice_name>.wav`.
+3. Set `voice_key="<voice_name>"` in `registry.py`.
 
-**Everything auto-generates from this config:**
-- System prompts (persona, handoff rules, domain routing)
-- Voice-to-agent mapping
-- Handoff tool names (`handoff_to_Max`, `handoff_to_Sarah`)
-- RAG knowledge base bindings
+### Swapping Voice Models
+The system is modularly designed via the Factory pattern in `app/services/voice/factory.py`.
+- To use **TEN VAD** instead of Silero, or **Chatterbox TTS** instead of VibeVoice, simply update the provider initialization in the factory.
 
 ### Adding a New Agent
 
@@ -424,4 +373,4 @@ AGENT_REGISTRY = [
 
 3. (Optional) Add knowledge base files to `knowledge/<domain>/` and run ingestion.
 
-That's it — no other files need to change.
+That's it — the system automatically handles the rest.

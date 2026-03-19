@@ -13,12 +13,13 @@ agent-framework
 # ── Speech-to-Text ──
 faster-whisper>=0.10.0
 
-# ── Text-to-Speech (VibeVoice) ──
+# ── Text-to-Speech (Chatterbox TTS) ──
+chatterbox-streaming>=0.1.0
 torch>=2.0.0
 numpy>=1.24.0
 
-# ── Voice Activity Detection ──
-# Silero VAD is loaded via torch.hub (no separate pip install needed)
+# ── Voice Activity Detection (TEN VAD) ──
+ten-vad>=1.0.0
 
 # ── RAG (Retrieval-Augmented Generation) ──
 chromadb>=0.4.0

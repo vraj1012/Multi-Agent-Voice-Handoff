@@ -23,10 +23,7 @@ def read_root():
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
-    """
-    Send a message to the multi-agent handoff system.
-    The orchestrator routes it to the appropriate agent.
-    """
+    """Send a message to the multi-agent handoff system."""
     service = get_orchestration_service()
     result = await service.process_message(request.message)
     return ChatResponse(**result)

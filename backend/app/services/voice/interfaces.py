@@ -3,7 +3,7 @@ Core interfaces for Voice Services.
 This defines the contract that all STT, TTS, and VAD providers must implement.
 """
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, AsyncGenerator
 import numpy as np
 
 class STTProvider(ABC):
@@ -39,6 +39,17 @@ class TTSProvider(ABC):
     def get_available_voices(self) -> Dict[str, Any]:
         """Return a dictionary of available voice presets."""
         pass
+
+    async def synthesize_stream(self, text: str, voice_key: Optional[str] = None) -> AsyncGenerator[bytes, None]:
+        """
+        Synthesize text to audio in streaming chunks.
+        Args:
+            text: Text to speak.
+            voice_key: Optional specific voice/speaker ID.
+        Yields:
+            Audio bytes (PCM WAV or similar format) in chunks.
+        """
+        raise NotImplementedError("This TTS provider does not support streaming synthesis.")
 
 class VADProvider(ABC):
     """Abstract base class for Voice Activity Detection providers."""

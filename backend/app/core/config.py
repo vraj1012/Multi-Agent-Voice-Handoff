@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+import torch
 
 class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
@@ -10,9 +11,12 @@ class Settings(BaseSettings):
     PORT: int = 8000
     
     # AI Config
-    WHISPER_MODEL_SIZE: str = "medium"
-    DEVICE: str = "cuda" # Switch to GPU
-    COMPUTE_TYPE: str = "float16" # Optimal for GPU
+    WHISPER_MODEL_SIZE: str = "large-v3-turbo"
+    DEVICE: str = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    @property
+    def COMPUTE_TYPE(self) -> str:
+        return "float16" if self.DEVICE in ["cuda", "gpu"] else "int8"
     
     TTS_MODEL_PATH: str = "microsoft/VibeVoice-Realtime-0.5B"
 

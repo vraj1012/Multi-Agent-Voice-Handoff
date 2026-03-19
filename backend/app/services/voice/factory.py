@@ -1,12 +1,4 @@
-"""
-Voice Factory — Loads the active STT/TTS/VAD providers based on configuration.
-"""
-from typing import Optional
-import logging
-
-from app.core.config import settings
-from app.services.voice.interfaces import STTProvider, TTSProvider, VADProvider
-
+"""Voice Factory — Loads the active STT/TTS/VAD providers based on configuration."""
 from typing import Optional
 import logging
 
@@ -33,16 +25,16 @@ class VoiceFactory:
     def get_tts_provider(cls) -> TTSProvider:
         if cls._tts_instance is None:
             # Lazy import
-            from app.services.voice.providers.tts_vibevoice import VibeVoiceTTS
-            logger.info("Loading Local VibeVoice TTS provider...")
-            cls._tts_instance = VibeVoiceTTS()
+            from app.services.voice.providers.tts_chatterbox import ChatterboxTTSProvider
+            logger.info("Loading Chatterbox TTS provider...")
+            cls._tts_instance = ChatterboxTTSProvider()
         return cls._tts_instance
 
     @classmethod
     def get_vad_provider(cls) -> VADProvider:
         if cls._vad_instance is None:
             # Lazy import
-            from app.services.voice.providers.vad_silero import SileroVAD
-            logger.info("Loading Local Silero VAD provider...")
-            cls._vad_instance = SileroVAD()
+            from app.services.voice.providers.vad_ten import TenVAD
+            logger.info("Loading TEN VAD provider...")
+            cls._vad_instance = TenVAD()
         return cls._vad_instance

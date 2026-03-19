@@ -1,6 +1,4 @@
-"""
-WebSocket Router — Real-time bidirectional voice streaming with barge-in.
-"""
+"""WebSocket Router — Real-time bidirectional voice streaming with barge-in."""
 import json
 import asyncio
 import logging
@@ -84,6 +82,19 @@ async def websocket_voice_endpoint(websocket: WebSocket):
                             await websocket.send_text(json.dumps(response))
                     except Exception:
                         break
+
+                # After a completed turn, drain stale audio that buffered during response
+                if stream_manager._turn_just_completed:
+                    stream_manager._turn_just_completed = False
+                    drained = 0
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                            drained += 1
+                        except asyncio.QueueEmpty:
+                            break
+                    if drained:
+                        logger.debug(f"Drained {drained} stale audio chunks after turn")
 
         except WebSocketDisconnect:
             pass

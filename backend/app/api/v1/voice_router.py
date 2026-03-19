@@ -1,6 +1,4 @@
-"""
-Voice Endpoints — API for voice interaction.
-"""
+"""Voice Endpoints — API for voice interaction."""
 import io
 from typing import Any
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
@@ -16,15 +14,7 @@ async def voice_chat(
     file: UploadFile = File(...),
     orchestrator: VoiceOrchestrator = Depends(get_voice_orchestrator)
 ):
-    """
-    Process uploaded audio file (WAV/MP3/M4A).
-    Returns synthesized audio response (WAV) with JSON metadata in headers.
-    
-    Headers:
-    - X-Agent-Name: Name of the responding agent
-    - X-Response-Text: Transcribed text response (JSON encoded if complex)
-    - X-Handoff: "true" or "false"
-    """
+    """Process uploaded audio file and return synthesized response."""
     if not file:
         raise HTTPException(status_code=400, detail="No file uploaded")
         
@@ -40,7 +30,7 @@ async def voice_chat(
              pass
              
         # Return audio as the body
-        # Metadata in headers for simple client consumption without multipart parsing
+        # Metadata in headers for client consumption
         headers = {
             "X-Agent-Name": result["agent_name"],
             "X-Response-Text": result["text_response"],  # Care with encoding non-ascii

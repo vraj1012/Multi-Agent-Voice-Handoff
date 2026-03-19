@@ -1,6 +1,4 @@
-"""
-Voice Orchestrator — STT -> Agent Mesh -> TTS pipeline.
-"""
+"""Voice Orchestrator — STT -> Agent Mesh -> TTS pipeline."""
 import re
 import io
 import time
@@ -54,11 +52,12 @@ class VoiceOrchestrator:
         self.stt = VoiceFactory.get_stt_provider()
         self.tts = VoiceFactory.get_tts_provider()
         self.agent_service = get_orchestration_service()
+        self.agent_service.reset()  # Reset global state for new call
         # Load voice mapping from registry — single source of truth
         self.agent_voices = get_agent_voice_map()
         logger.info(f"Voice Orchestrator initialized. Voices: {list(self.agent_voices.keys())}")
 
-    # ── Batch processing (REST API) ────────────────────────────────────
+    # Batch processing (REST API)
 
     async def process_voice_turn(self, audio_data: bytes, filename: str = "input.wav") -> Dict[str, Any]:
         """Full voice turn: STT -> Agent -> TTS. Returns combined response."""
@@ -126,7 +125,7 @@ class VoiceOrchestrator:
             "time_taken": time.time() - start_time,
         }
 
-    # ── Streaming processing (WebSocket) ───────────────────────────────
+    # Streaming processing (WebSocket)
 
     async def process_voice_turn_streaming(self, audio_data: bytes, filename: str = "input.wav", was_interrupted: bool = False):
         """Streaming voice turn: STT -> Agent -> sentence-level TTS chunks."""
@@ -147,11 +146,25 @@ class VoiceOrchestrator:
                 pass
             return
 
-        if not user_text.strip():
+        # Clean text
+        user_text = user_text.strip()
+        
+        # Whisper Hallucination Filter
+        clean_check = re.sub(r'[^a-zA-Z\s]', '', user_text).strip().lower()
+        hallucinations = [
+            "thank you", "thanks", "thank you for watching", "thanks for watching",
+            "please subscribe", "subscribe", "bye", "you", "okay", "amem", "amen"
+        ]
+        if clean_check in hallucinations:
+            logger.info(f"Filtered Whisper hallucination: '{user_text}'")
+            user_text = ""
+
+        if not user_text:
             yield {"type": "status", "content": "silent"}
             return
 
         logger.info(f"User: {user_text}")
+        yield {"type": "transcript", "role": "user", "content": user_text}
 
         # Context tagging
         is_farewell = self._is_farewell(user_text)
@@ -174,8 +187,10 @@ class VoiceOrchestrator:
 
         if was_interrupted:
             user_text = (
-                f"[INTERRUPTED: The user interrupted your response. "
-                f"Ask for confirmation before switching topics.]\n\n{user_text}"
+                f"[SYSTEM: The user just instantly interrupted you mid-sentence. "
+                f"If they are attempting to switch to a new topic (like 'can we talk about cyber security'), you MUST NOT answer their question yet. "
+                f"Instead, you MUST pause and ask them a follow-up question in this exact format: 'Do you want to switch the topic to [their new topic] or continue talking about [the topic you were just discussing]?' "
+                f"If they are just asking for clarification on the current topic, simply answer them.]\n\n{user_text}"
             )
 
         # Agent processing
@@ -221,18 +236,38 @@ class VoiceOrchestrator:
                 "handoff_target": agent_result.get("handoff_target"),
             }
 
-            for i, sentence in enumerate(self._split_into_sentences(text)):
-                if not sentence.strip():
-                    continue
-                try:
-                    loop = asyncio.get_event_loop()
-                    audio_bytes = await loop.run_in_executor(
-                        None, functools.partial(self.tts.synthesize, sentence.strip(), voice_key=voice_key)
-                    )
+            # Try true streaming first
+            try:
+                chunk_idx = 0
+                audio_buffer = b""
+                async for audio_bytes in self.tts.synthesize_stream(text.strip(), voice_key=voice_key):
                     if audio_bytes:
-                        yield {"type": "audio", "content": audio_bytes, "agent": agent_name, "chunk": i}
-                except Exception as e:
-                    logger.error(f"TTS error for {agent_name} chunk {i}: {e}")
+                        audio_buffer += audio_bytes
+                        # Send when we have ~40ms of audio (24000 seq/sec * 2 bytes = 48000 bytes/sec)
+                        if len(audio_buffer) >= 2000:
+                            yield {"type": "audio", "content": audio_buffer, "agent": agent_name, "chunk": chunk_idx}
+                            audio_buffer = b""
+                            chunk_idx += 1
+                
+                # Yield remainder
+                if audio_buffer:
+                    yield {"type": "audio", "content": audio_buffer, "agent": agent_name, "chunk": chunk_idx}
+            except NotImplementedError:
+                # Fallback: Stream TTS sentence-by-sentence (low latency with CUDA)
+                for i, sentence in enumerate(self._split_into_sentences(text)):
+                    if not sentence.strip():
+                        continue
+                    try:
+                        loop = asyncio.get_event_loop()
+                        audio_bytes = await loop.run_in_executor(
+                            None, functools.partial(self.tts.synthesize, sentence.strip(), voice_key=voice_key)
+                        )
+                        if audio_bytes:
+                            yield {"type": "audio", "content": audio_bytes, "agent": agent_name, "chunk": i}
+                    except Exception as e:
+                        logger.error(f"TTS error for {agent_name} chunk {i}: {e}")
+            except Exception as e:
+                logger.error(f"TTS stream error for {agent_name}: {e}", exc_info=True)
 
         if is_farewell:
             yield {"type": "status", "content": "call_ended"}
@@ -240,7 +275,7 @@ class VoiceOrchestrator:
             yield {"type": "status", "content": "listening"}
         logger.info(f"Voice turn complete in {time.time() - start_time:.2f}s")
 
-    # ── Helper methods ─────────────────────────────────────────────────
+    # Helper methods
 
     @staticmethod
     def _ensure_handoff_bridge(agent_messages, agent_result):

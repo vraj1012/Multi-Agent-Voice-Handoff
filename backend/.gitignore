@@ -1,39 +1,43 @@
-# Environment files (contain API keys)
-.env
-
-# Python
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[cod]
-*$py.class
-*.egg-info/
-dist/
-build/
+*.pyc
+*.pyo
+*.pyd
 
-# Virtual environments
-venv/
-.venv/
+# Environments
+.env
+.venv
 env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 
-# IDE
+# Local Databases
+chroma_db/
+
+# Models & Weights (Large Files)
+vibevoice_model/
+*.pt
+*.pth
+*.bin
+*.onnx
+
+# Recordings & Audio
+recordings/
+*.wav
+*.mp3
+*.flac
+
+# Logs
+*.log
+
+# Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# OS
+# Project Specific
+node_modules/
 .DS_Store
-Thumbs.db
-
-# Model files (large)
-vibevoice_model/
-
-# ChromaDB local data
-chroma_db/
-
-# Recordings
-recordings/
-
-# Conversation & AI tool folders
-conversation/
-conversations/
-.gemini/

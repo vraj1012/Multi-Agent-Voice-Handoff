@@ -5,16 +5,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 def create_rag_tool(collection_name: str) -> AIFunction:
-    """
-    Creates a RAG tool bound to a specific collection.
-    """
+    """Creates a RAG tool bound to a specific collection."""
     
     def search_knowledge_base(query: str) -> str:
-        """
-        Searches the internal knowledge base for information relevant to the query.
-        Use this tool when the user asks a question that requires specific domain knowledge 
-        (e.g. detailed policies, technical specs, internal documents).
-        """
+        """Searches the internal knowledge base for relevant information."""
         logger.info(f"Tool 'search_knowledge_base' invoked for collection '{collection_name}' with query: '{query}'")
         try:
             rag_engine = get_rag_engine()
